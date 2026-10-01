@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Silos aéreos · GLP</title>
+<script>
+  try{var _t=localStorage.getItem("glp-silos-theme");document.documentElement.setAttribute("data-theme",(_t==="light"||_t==="dark")?_t:"dark")}
+  catch(e){document.documentElement.setAttribute("data-theme","dark")}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
@@ -21,7 +25,34 @@
     --warn:#B7791F;
     --alert:#C2412D;
     --steel:#9AA8B1;
+    --tile:#FFFFFF;
+    --err-bg:#FBEDEA;--err-ink:#6A2218;
+    --silo-body:#FFFFFF;--silo-roof:#C9D2D8;--silo-line:#7C8B95;--silo-out:#5A6B75;--silo-outlet:#9AA8B1;--silo-tick:#5A6B75;--silo-corr:rgba(255,255,255,.28);
+    color-scheme:light;
   }
+  :root[data-theme="dark"]{
+    --bg:#101A21;
+    --panel:#192630;
+    --ink:#E7EDF0;
+    --muted:#98A8B2;
+    --line:#2D3E49;
+    --soja-soft:#2B3A21;
+    --girasol-soft:#47391A;
+    --warn:#E8B04B;
+    --alert:#FF7C68;
+    --steel:#6F818C;
+    --tile:#1F2F3A;
+    --err-bg:#3A1D19;--err-ink:#FFC9C0;
+    --silo-body:#22333E;--silo-roof:#3A4B56;--silo-line:#5B6E7A;--silo-out:#9DB0BB;--silo-outlet:#5B6E7A;--silo-tick:#98A8B2;--silo-corr:rgba(0,0,0,.22);
+    color-scheme:dark;
+  }
+  .s-roof{fill:var(--silo-roof);stroke:var(--silo-line);stroke-width:1.5;stroke-linejoin:round}
+  .s-body{fill:var(--silo-body);stroke:none}
+  .s-line{stroke:var(--silo-line)}
+  .s-out{fill:none;stroke:var(--silo-out);stroke-width:2;stroke-linejoin:round}
+  .s-outlet{fill:var(--silo-outlet);stroke:var(--silo-out);stroke-width:1.5}
+  .s-tick{fill:var(--silo-tick)}
+  .s-corr{stroke:var(--silo-corr)}
   *{box-sizing:border-box}
   html,body{margin:0}
   body{
@@ -35,6 +66,9 @@
     display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px;
     padding:20px clamp(16px,3vw,36px) 8px;
   }
+  .brand{display:flex;align-items:center;gap:16px}
+  .logo-wrap{background:#fff;border-radius:8px;padding:4px 10px;display:flex;align-items:center;flex:none}
+  .logo-wrap img{height:52px;width:auto;max-width:180px;display:block}
   header.top h1{
     margin:0;font-family:"Barlow Condensed",sans-serif;font-weight:700;
     font-size:clamp(28px,4vw,40px);letter-spacing:.01em;line-height:1;
@@ -91,7 +125,7 @@
 
   .info{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-top:12px}
   .info:empty{display:none}
-  .tile{background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0}
+  .tile{background:var(--tile);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0}
   .tile .lbl{font-size:12px;color:var(--muted);line-height:1.2}
   .tile .val{font-family:"Barlow Condensed",sans-serif;font-weight:700;font-size:26px;line-height:1.15;overflow-wrap:anywhere}
   .tile .val small{font-size:14px;font-weight:500;color:var(--muted)}
@@ -100,7 +134,7 @@
   .silo.filling{background:var(--soft);box-shadow:inset 0 0 0 2px var(--accent)}
   .silo .fill-tag{font-size:11px;font-weight:600;background:var(--accent);color:#fff;border-radius:4px;padding:0 6px;margin-top:3px}
   .state{padding:24px 4px;color:var(--muted)}
-  .error{border-left:4px solid var(--alert);background:#FBEDEA;color:#6A2218;padding:12px 14px;border-radius:6px;font-size:14px;margin-top:12px}
+  .error{border-left:4px solid var(--alert);background:var(--err-bg);color:var(--err-ink);padding:12px 14px;border-radius:6px;font-size:14px;margin-top:12px}
   .error code{font-size:12px;word-break:break-word}
 
   footer{padding:0 clamp(16px,3vw,36px) 28px;color:var(--muted);font-size:13px;max-width:900px}
@@ -114,13 +148,17 @@
 <body>
 
 <header class="top">
-  <div>
-    <h1>Silos aéreos</h1>
-    <p>Niveles cargados por los operarios. Los datos se renuevan cada 2 horas.</p>
+  <div class="brand">
+    <span class="logo-wrap"><img src="logo.jpg" alt="Gente de la Pampa" onerror="this.parentNode.style.display='none'"></span>
+    <div>
+      <h1>Silos aéreos</h1>
+      <p>Niveles cargados por los operarios. Los datos se renuevan cada 2 horas.</p>
+    </div>
   </div>
   <div class="refresh">
     <span id="lastFetch">Cargando…</span>
     <button id="btnRefresh" type="button">Actualizar ahora</button>
+    <button id="btnTheme" type="button">Tema claro</button>
   </div>
 </header>
 
@@ -344,25 +382,25 @@ function siloSVG(id, s, L, color){
   let seps="", ticks="";
   for(let k=1;k<=L.chapas;k++){
     const y = G.top+G.bodyH - k*chH;
-    if(k<L.chapas) seps += `<line x1="${G.x0}" x2="${G.x1}" y1="${y}" y2="${y}" stroke="#7C8B95" stroke-width="1"/>`;
-    ticks += `<text x="88" y="${y+4}" font-size="11" fill="#5A6B75" font-family="Barlow,sans-serif">${k}</text>`;
+    if(k<L.chapas) seps += `<line class="s-line" x1="${G.x0}" x2="${G.x1}" y1="${y}" y2="${y}" stroke-width="1"/>`;
+    ticks += `<text x="88" y="${y+4}" font-size="11" class="s-tick" font-family="Barlow,sans-serif">${k}</text>`;
   }
   const coneY = G.top+G.bodyH;
   let corr="";
-  for(let y=G.top+4;y<coneY;y+=6) corr += `<line x1="${G.x0}" x2="${G.x1}" y1="${y}" y2="${y}" stroke="#fff" stroke-opacity=".28" stroke-width=".8"/>`;
+  for(let y=G.top+4;y<coneY;y+=6) corr += `<line x1="${G.x0}" x2="${G.x1}" y1="${y}" y2="${y}" class="s-corr" stroke-width=".8"/>`;
   return `
   <svg viewBox="0 0 104 184" role="img" aria-hidden="true">
     <defs><clipPath id="c${id}"><path d="${shape}"/></clipPath></defs>
-    <path d="M${G.x0} ${G.top} L44 8 L${G.x1} ${G.top} Z" fill="#C9D2D8" stroke="#7C8B95" stroke-width="1.5" stroke-linejoin="round"/>
-    <path d="${shape}" fill="#FFFFFF" stroke="none"/>
+    <path d="M${G.x0} ${G.top} L44 8 L${G.x1} ${G.top} Z" class="s-roof"/>
+    <path class="s-body" d="${shape}"/>
     <g clip-path="url(#c${id})">
       <rect class="fill" x="0" y="${base-fillH}" width="104" height="${fillH}" fill="${color}"/>
       ${corr}
     </g>
     ${seps}
-    <line x1="${G.x0}" x2="${G.x1}" y1="${coneY}" y2="${coneY}" stroke="#7C8B95" stroke-width="1.5"/>
-    <path d="${shape}" fill="none" stroke="#5A6B75" stroke-width="2" stroke-linejoin="round"/>
-    <rect x="36" y="${base}" width="16" height="6" fill="#9AA8B1" stroke="#5A6B75" stroke-width="1.5"/>
+    <line x1="${G.x0}" x2="${G.x1}" y1="${coneY}" y2="${coneY}" class="s-line" stroke-width="1.5"/>
+    <path class="s-out" d="${shape}"/>
+    <rect x="36" y="${base}" width="16" height="6" class="s-outlet"/>
     ${ticks}
   </svg>`;
 }
@@ -504,6 +542,15 @@ async function loadAll(){
   document.getElementById("lastFetch").textContent =
     anyStale ? `No se pudo actualizar a las ${hh}; se muestran los últimos datos` : `Leído a las ${hh}`;
 }
+
+const btnTheme = document.getElementById("btnTheme");
+function applyTheme(t){
+  document.documentElement.setAttribute("data-theme", t);
+  btnTheme.textContent = t==="dark" ? "Tema claro" : "Tema oscuro";
+  try{ localStorage.setItem("glp-silos-theme", t); }catch(e){}
+}
+applyTheme(document.documentElement.getAttribute("data-theme")==="light" ? "light" : "dark");
+btnTheme.addEventListener("click", ()=> applyTheme(document.documentElement.getAttribute("data-theme")==="dark" ? "light" : "dark"));
 
 document.getElementById("btnRefresh").addEventListener("click", loadAll);
 renderFooter();
