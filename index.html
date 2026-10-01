@@ -89,6 +89,16 @@
   .silo.old .age{color:var(--alert);font-weight:600}
   .silo.nodata .tn{color:var(--steel)}
 
+  .info{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-top:12px}
+  .info:empty{display:none}
+  .tile{background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0}
+  .tile .lbl{font-size:12px;color:var(--muted);line-height:1.2}
+  .tile .val{font-family:"Barlow Condensed",sans-serif;font-weight:700;font-size:26px;line-height:1.15;overflow-wrap:anywhere}
+  .tile .val small{font-size:14px;font-weight:500;color:var(--muted)}
+  .tile .sub{font-size:12px;color:var(--muted)}
+  .tile.celda{border-color:var(--accent);background:var(--soft)}
+  .silo.filling{background:var(--soft);box-shadow:inset 0 0 0 2px var(--accent)}
+  .silo .fill-tag{font-size:11px;font-weight:600;background:var(--accent);color:#fff;border-radius:4px;padding:0 6px;margin-top:3px}
   .state{padding:24px 4px;color:var(--muted)}
   .error{border-left:4px solid var(--alert);background:#FBEDEA;color:#6A2218;padding:12px 14px;border-radius:6px;font-size:14px;margin-top:12px}
   .error code{font-size:12px;word-break:break-word}
@@ -122,6 +132,7 @@
     </div>
     <div class="bar"><i id="bar-soja"></i></div>
     <div class="meta" id="meta-soja"></div>
+    <div class="info" id="info-soja"></div>
     <div id="body-soja"><div class="state">Cargando datos…</div></div>
   </section>
 
@@ -132,6 +143,7 @@
     </div>
     <div class="bar"><i id="bar-girasol"></i></div>
     <div class="meta" id="meta-girasol"></div>
+    <div class="info" id="info-girasol"></div>
     <div id="body-girasol"><div class="state">Cargando datos…</div></div>
   </section>
 </main>
@@ -154,11 +166,15 @@ const CONFIG = {
   lines: {
     soja: {
       csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSXy6_HqO9QxUB-BN6XPWMO6TA2FVpqWcTWfiKLKZof9e5a9i7A_T4TC71x3z3HD6QGIU7kNyutv4ZT/pub?output=csv",
-      cono: 5, chapa: 13.33, chapas: 3, cols: {}
+      cono: 5, chapa: 13.33, chapas: 3, cols: {},
+      // columnas (base 0): K=10 humedad pellet, L=11 destino, M=12 silo destino, O=14 temp. salida enfriador
+      info: {hum:10, dest:11, silo:12, temp:14}
     },
     girasol: {
       csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSPwdonlIsyjr7cLcQm0tdn-D5Q5hi2345xHQA1bQACv9D8qPABYMtHijFjxPgEoejnE8SWRjsKovpd/pub?output=csv",
-      cono: 3, chapa: 11.66, chapas: 3, cols: {}
+      cono: 3, chapa: 11.66, chapas: 3, cols: {},
+      // columnas (base 0): U=20 y V=21 -> destino de silo
+      info: {free:[20,21]}
     }
   }
 };
@@ -223,6 +239,48 @@ function parseNivel(raw, L){
   return {chapas:n, tn: n>0 ? L.cono + n*L.chapa : 0, mode:"chapas"};
 }
 
+/* ---------- datos de proceso (humedad, temperatura, destino) ---------- */
+const cellTxt = (r,i)=> String(r[i]??"").replace(/\s+/g," ").trim();
+function numOf(s,min,max){
+  const m = s.match(/^\s*(\d{1,3}(?:[.,]\d+)?)(?![\d:.,])/);
+  if(!m) return null;
+  const v = parseFloat(m[1].replace(",","."));
+  return (v>=min && v<=max) ? v : null;
+}
+function lastNum(recs,i,min,max){
+  for(const x of recs){ const v = numOf(cellTxt(x.r,i),min,max); if(v!==null) return {v, t:x.t}; }
+  return null;
+}
+function lastText(recs,i){
+  for(const x of recs){ const s = cellTxt(x.r,i); if(s && !/^[.\-x]+$/i.test(s)) return {s, t:x.t}; }
+  return null;
+}
+function buildInfo(cfg, recs, head){
+  const out = {t: recs.length ? recs[0].t : null};
+  if(cfg.hum!=null)  out.hum  = lastNum(recs,cfg.hum,3,25);
+  if(cfg.temp!=null) out.temp = lastNum(recs,cfg.temp,5,80);
+  if(cfg.dest!=null && cfg.silo!=null && recs.length){
+    const r = recs[0].r, d = cellTxt(r,cfg.dest), s = cellTxt(r,cfg.silo);
+    out.celda = /celda/.test(norm(d)) || /celda/.test(norm(s));
+    out.siloTxt = s || d;
+    const m = norm(s).match(/silo\s*(\d+)/);
+    out.siloN = (!out.celda && m) ? +m[1] : null;
+  }
+  if(cfg.free){
+    out.free = cfg.free.map(i=>{
+      const lt = lastText(recs,i);
+      return {label: String(head[i]||"").split("\n")[0].replace(/\s+/g," ").trim() || ("Columna "+(i+1)), ...(lt||{})};
+    });
+    out.siloN = null;
+    for(const f of out.free){
+      if(!f.s) continue;
+      const m = norm(f.s).match(/silo\s*(\d+)/) || norm(f.s).match(/^(\d+)$/);
+      if(m){ out.siloN = +m[1]; }
+    }
+  }
+  return out;
+}
+
 /* ---------- lectura de cada planilla ---------- */
 function extract(rows, L){
   const hi = rows.findIndex(r => r.some(c => norm(c)==="marca temporal"));
@@ -262,7 +320,8 @@ function extract(rows, L){
     return {n, nodata:true};
   });
   const last = recs.length ? recs[0].t : null;
-  return {silos, last};
+  const info = L.info ? buildInfo(L.info, recs, head) : null;
+  return {silos, last, info};
 }
 
 /* ---------- dibujo del silo ---------- */
@@ -331,7 +390,7 @@ function render(key){
 
   if(!st){ return; }
   if(st.error){
-    total.innerHTML=""; bar.style.width="0"; meta.innerHTML="";
+    total.innerHTML=""; bar.style.width="0"; meta.innerHTML=""; document.getElementById("info-"+key).innerHTML="";
     const hs = st.error.headers ? `<br><code>Encabezados detectados: ${st.error.headers.join(" | ")}</code>` : "";
     body.innerHTML = `<div class="error"><strong>No se pudo leer esta planilla.</strong> ${st.error.message}${hs}</div>`;
     return;
@@ -350,6 +409,8 @@ function render(key){
     : `<span class="badge alert">Sin cargas registradas</span>`;
   meta.innerHTML = `${badge}<span>${nf0.format(pct)} % ocupado</span>`;
 
+  renderInfo(key, st.data.info);
+  const fillN = st.data.info ? st.data.info.siloN : null;
   body.innerHTML = `<div class="silos">` + silos.map(s=>{
     const c = s.nodata ? "nodata" : s.error ? "nodata" : ageClass(s.t);
     let tn, det, age;
@@ -361,14 +422,41 @@ function render(key){
       age = haceCuanto(s.t);
     }
     const aria = s.nodata ? `Silo ${s.n}: sin datos` : s.error ? `Silo ${s.n}: dato ilegible` : `Silo ${s.n}: ${nf1.format(s.tn)} toneladas, ${det}, ${age}`;
-    return `<div class="silo ${c}" tabindex="0" aria-label="${aria}">
+    const isFill = fillN!=null && s.n===fillN;
+    return `<div class="silo ${c}${isFill?" filling":""}" tabindex="0" aria-label="${aria}${isFill?", llenándose ahora":""}">
       ${siloSVG(key+s.n, s, L, color)}
       <div class="name">Silo ${s.n}</div>
       <div class="tn">${tn}</div>
       <div class="det">${det}</div>
       <div class="age">${age}</div>
+      ${isFill?'<div class="fill-tag">Llenando</div>':""}
     </div>`;
   }).join("") + `</div>`;
+}
+
+function tile(lbl, val, sub, cls){
+  return `<div class="tile ${cls||""}"><div class="lbl">${lbl}</div><div class="val">${val}</div>${sub?`<div class="sub">${sub}</div>`:""}</div>`;
+}
+function renderInfo(key, info){
+  const el = document.getElementById("info-"+key);
+  if(!info){ el.innerHTML=""; return; }
+  const t = [];
+  if(info.siloTxt!==undefined){
+    t.push(tile("Llenando ahora", info.celda ? "Celda" : (info.siloTxt || "—"), info.t ? "registro "+haceCuanto(info.t) : "", info.celda?"celda":""));
+    t.push(tile("¿Va a celda?", info.celda ? "Sí" : "No", "", info.celda?"celda":""));
+  }
+  if("hum" in info){
+    const h = info.hum;
+    t.push(tile("Humedad del pellet", h ? `${nf1.format(h.v)} <small>%</small>` : "—", h ? "medición "+haceCuanto(h.t) : "sin dato válido"));
+  }
+  if("temp" in info){
+    const x = info.temp;
+    t.push(tile("Temp. salida enfriador", x ? `${nf1.format(x.v)} <small>°C</small>` : "—", x ? "registro "+haceCuanto(x.t) : "sin dato válido"));
+  }
+  if(info.free){
+    info.free.forEach(f=> t.push(tile(f.label, f.s ? f.s : "—", f.t ? "registro "+haceCuanto(f.t) : "sin dato")));
+  }
+  el.innerHTML = t.join("");
 }
 
 function renderFooter(){
