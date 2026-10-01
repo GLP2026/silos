@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Silos aéreos · GLP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#E8ECEF;
+    --panel:#F7F9FA;
+    --ink:#17252E;
+    --muted:#5A6B75;
+    --line:#C5CED4;
+    --soja:#5E7F3A;
+    --soja-soft:#DCE6CF;
+    --girasol:#E3A21A;
+    --girasol-soft:#F6E5BC;
+    --warn:#B7791F;
+    --alert:#C2412D;
+    --steel:#9AA8B1;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:"Barlow",system-ui,sans-serif;
+    font-size:16px;
+    line-height:1.4;
+  }
+  header.top{
+    display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px;
+    padding:20px clamp(16px,3vw,36px) 8px;
+  }
+  header.top h1{
+    margin:0;font-family:"Barlow Condensed",sans-serif;font-weight:700;
+    font-size:clamp(28px,4vw,40px);letter-spacing:.01em;line-height:1;
+  }
+  header.top p{margin:4px 0 0;color:var(--muted);font-size:14px}
+  .refresh{display:flex;align-items:center;gap:12px;font-size:14px;color:var(--muted)}
+  .refresh button{
+    font:inherit;font-weight:500;color:var(--ink);background:var(--panel);
+    border:1px solid var(--line);border-radius:6px;padding:7px 14px;cursor:pointer;
+  }
+  .refresh button:hover{border-color:var(--steel)}
+  .refresh button:focus-visible,.silo:focus-visible{outline:3px solid #2F6FED;outline-offset:2px}
+
+  main{
+    display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;
+    padding:12px clamp(16px,3vw,36px) 32px;
+  }
+  @media (max-width:980px){ main{grid-template-columns:1fr} }
+
+  .panel{
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:18px 18px 14px;border-top:6px solid var(--accent);
+  }
+  .panel.soja{--accent:var(--soja);--soft:var(--soja-soft)}
+  .panel.girasol{--accent:var(--girasol);--soft:var(--girasol-soft)}
+
+  .panel-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:10px}
+  .panel-head h2{
+    margin:0;font-family:"Barlow Condensed",sans-serif;font-weight:700;font-size:30px;line-height:1;
+  }
+  .total{text-align:right}
+  .total .big{font-family:"Barlow Condensed",sans-serif;font-weight:600;font-size:30px;line-height:1}
+  .total .big small{font-size:16px;color:var(--muted);font-weight:500}
+  .bar{height:8px;background:var(--soft);border-radius:4px;margin:10px 0 4px;overflow:hidden}
+  .bar > i{display:block;height:100%;background:var(--accent);width:0;transition:width .6s ease}
+  .meta{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 16px;font-size:13px;color:var(--muted);min-height:20px}
+  .badge{font-weight:600}
+  .badge.warn{color:var(--warn)}
+  .badge.alert{color:var(--alert)}
+
+  .silos{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:10px 6px;margin-top:14px;
+  }
+  .silo{display:flex;flex-direction:column;align-items:center;text-align:center;padding:6px 2px 8px;border-radius:8px}
+  .silo svg{width:100%;max-width:112px;height:auto;display:block}
+  .silo .name{font-family:"Barlow Condensed",sans-serif;font-weight:600;font-size:18px;margin-top:2px}
+  .silo .tn{font-family:"Barlow Condensed",sans-serif;font-weight:700;font-size:26px;line-height:1.05}
+  .silo .tn small{font-size:14px;font-weight:500;color:var(--muted)}
+  .silo .det{font-size:13px;color:var(--muted)}
+  .silo .age{font-size:12px;color:var(--muted);margin-top:2px}
+  .silo.stale .age{color:var(--warn);font-weight:600}
+  .silo.old .age{color:var(--alert);font-weight:600}
+  .silo.nodata .tn{color:var(--steel)}
+
+  .state{padding:24px 4px;color:var(--muted)}
+  .error{border-left:4px solid var(--alert);background:#FBEDEA;color:#6A2218;padding:12px 14px;border-radius:6px;font-size:14px;margin-top:12px}
+  .error code{font-size:12px;word-break:break-word}
+
+  footer{padding:0 clamp(16px,3vw,36px) 28px;color:var(--muted);font-size:13px;max-width:900px}
+
+  .fill{transition:y .7s ease,height .7s ease}
+  @media (prefers-reduced-motion:reduce){
+    .fill,.bar > i{transition:none}
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div>
+    <h1>Silos aéreos</h1>
+    <p>Niveles cargados por los operarios. Los datos se renuevan cada 2 horas.</p>
+  </div>
+  <div class="refresh">
+    <span id="lastFetch">Cargando…</span>
+    <button id="btnRefresh" type="button">Actualizar ahora</button>
+  </div>
+</header>
+
+<main>
+  <section class="panel soja" id="panel-soja" aria-labelledby="t-soja">
+    <div class="panel-head">
+      <h2 id="t-soja">Silos de soja</h2>
+      <div class="total" id="total-soja"></div>
+    </div>
+    <div class="bar"><i id="bar-soja"></i></div>
+    <div class="meta" id="meta-soja"></div>
+    <div id="body-soja"><div class="state">Cargando datos…</div></div>
+  </section>
+
+  <section class="panel girasol" id="panel-girasol" aria-labelledby="t-girasol">
+    <div class="panel-head">
+      <h2 id="t-girasol">Silos de girasol</h2>
+      <div class="total" id="total-girasol"></div>
+    </div>
+    <div class="bar"><i id="bar-girasol"></i></div>
+    <div class="meta" id="meta-girasol"></div>
+    <div id="body-girasol"><div class="state">Cargando datos…</div></div>
+  </section>
+</main>
+
+<footer id="foot"></footer>
+
+<script>
+/* =====================================================================
+   CONFIGURACIÓN
+   - cono: toneladas que aloja el cono lleno
+   - chapa: toneladas que aloja cada chapa
+   - chapas: cantidad de chapas de altura del cuerpo del silo
+   - cols: (opcional) forzar columnas por número de silo. Índice base 0.
+           Ejemplo: cols:{1:25, 2:26, 3:27}
+   ===================================================================== */
+const CONFIG = {
+  refreshMin: 5,        // cada cuántos minutos se vuelve a leer la planilla
+  staleMin: 150,        // más de 2 h 30 sin dato nuevo -> amarillo
+  oldMin: 240,          // más de 4 h sin dato nuevo -> rojo
+  lines: {
+    soja: {
+      csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSXy6_HqO9QxUB-BN6XPWMO6TA2FVpqWcTWfiKLKZof9e5a9i7A_T4TC71x3z3HD6QGIU7kNyutv4ZT/pub?output=csv",
+      cono: 5, chapa: 13.33, chapas: 3, cols: {}
+    },
+    girasol: {
+      csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSPwdonlIsyjr7cLcQm0tdn-D5Q5hi2345xHQA1bQACv9D8qPABYMtHijFjxPgEoejnE8SWRjsKovpd/pub?output=csv",
+      cono: 3, chapa: 11.66, chapas: 3, cols: {}
+    }
+  }
+};
+
+/* ---------- utilidades ---------- */
+const nf1 = new Intl.NumberFormat("es-AR",{minimumFractionDigits:1,maximumFractionDigits:1});
+const nf0 = new Intl.NumberFormat("es-AR",{maximumFractionDigits:0});
+const norm = s => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim();
+const capTn = L => L.cono + L.chapas * L.chapa;
+
+function parseCSV(text){
+  const rows=[]; let row=[], cell="", q=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(q){
+      if(c==='"'){ if(text[i+1]==='"'){cell+='"';i++} else q=false }
+      else cell+=c;
+    }else{
+      if(c==='"') q=true;
+      else if(c===",") {row.push(cell);cell=""}
+      else if(c==="\n"){row.push(cell);rows.push(row);row=[];cell=""}
+      else if(c==="\r"){}
+      else cell+=c;
+    }
+  }
+  if(cell!==""||row.length){row.push(cell);rows.push(row)}
+  return rows;
+}
+
+// "18/11/2025 21:26:10" (día/mes/año) -> Date local
+function parseFecha(s){
+  const m = String(s||"").trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if(!m) return null;
+  return new Date(+m[3], +m[2]-1, +m[1], +(m[4]||0), +(m[5]||0), +(m[6]||0));
+}
+
+/* Interpreta lo que cargó el operario.
+   Reglas (se pueden ajustar acá):
+   - número  -> chapas ocupadas sobre el cono (acepta coma: "1,5"; "1/2"; "2 y media")
+   - "0" o "vacío" -> silo vacío
+   - "cono" -> solo el cono lleno
+   - "lleno"/"completo" -> todas las chapas
+   Si hay al menos un valor > 0 se asume el cono lleno. */
+function parseNivel(raw, L){
+  const s = norm(raw);
+  if(!s) return null;
+  if(/^(vacio|vacia|sin material)$/.test(s) || /^0+([.,]0+)?$/.test(s)) return {chapas:0, tn:0, mode:"vacio"};
+  if(/lleno|llena|completo|completa/.test(s)) return {chapas:L.chapas, tn:capTn(L), mode:"lleno"};
+  if(/^(solo )?(el )?cono/.test(s)) return {chapas:0, tn:L.cono, mode:"cono"};
+  let n=null;
+  const frac = s.match(/(\d+)\s*\/\s*(\d+)/);
+  const num  = s.match(/\d+(?:[.,]\d+)?/);
+  if(frac && +frac[2]>0){
+    const whole = s.match(/^(\d+)\s+\d+\s*\/\s*\d+/);
+    n = (whole?+whole[1]:0) + (+frac[1])/(+frac[2]);
+  }else if(num){
+    n = parseFloat(num[0].replace(",","."));
+    if(/media/.test(s) && Number.isInteger(n)) n += 0.5;
+  }
+  if(n===null || isNaN(n)) return {error:true, raw:String(raw).trim()};
+  n = Math.min(Math.max(n,0), L.chapas);
+  return {chapas:n, tn: n>0 ? L.cono + n*L.chapa : 0, mode:"chapas"};
+}
+
+/* ---------- lectura de cada planilla ---------- */
+function extract(rows, L){
+  const hi = rows.findIndex(r => r.some(c => norm(c)==="marca temporal"));
+  if(hi<0) throw new Error("No encontré la fila de encabezados (columna «Marca temporal»).");
+  const head = rows[hi];
+  const tsCol = head.findIndex(c => norm(c)==="marca temporal");
+  const opCol = head.findIndex(c => norm(c)==="operador");
+
+  // columnas de nivel por silo
+  const cols = {...(L.cols||{})};
+  head.forEach((h,i)=>{
+    const t = norm(h);
+    const m = t.match(/silo\s*(\d+)/);
+    if(m && (t.includes("nivel") || /^silo\s*\d+\s*$/.test(t))){
+      if(cols[+m[1]]===undefined) cols[+m[1]] = i;
+    }
+  });
+  const nums = Object.keys(cols).map(Number).sort((a,b)=>a-b);
+  if(!nums.length){
+    const err = new Error("No encontré columnas de nivel de silo en la planilla.");
+    err.headers = head.map(h=>String(h).replace(/\s+/g," ").trim()).filter(Boolean);
+    throw err;
+  }
+
+  // registros con fecha, del más nuevo al más viejo
+  const recs = rows.slice(hi+1)
+    .map(r => ({r, t:parseFecha(r[tsCol])}))
+    .filter(x => x.t)
+    .sort((a,b)=> b.t - a.t);
+
+  const silos = nums.map(n=>{
+    const idx = cols[n];
+    for(const x of recs){
+      const v = parseNivel(x.r[idx], L);
+      if(v) return {n, ...v, t:x.t, op: opCol>=0 ? String(x.r[opCol]||"").trim() : ""};
+    }
+    return {n, nodata:true};
+  });
+  const last = recs.length ? recs[0].t : null;
+  return {silos, last};
+}
+
+/* ---------- dibujo del silo ---------- */
+// geometría: cuerpo 3 chapas de 40 u cada una, cono de 30 u
+const G = {x0:8, x1:80, top:22, bodyH:120, coneH:30};
+function siloSVG(id, s, L, color){
+  const base = G.top + G.bodyH + G.coneH;           // y del fondo del cono
+  const chH = G.bodyH / L.chapas;
+  let fillH = 0;
+  if(!s.nodata && !s.error){
+    if(s.mode==="cono") fillH = G.coneH;
+    else if(s.chapas>0) fillH = G.coneH + s.chapas*chH;
+  }
+  const shape = `M${G.x0} ${G.top} H${G.x1} V${G.top+G.bodyH} L52 ${base} H36 L${G.x0} ${G.top+G.bodyH} Z`;
+  let seps="", ticks="";
+  for(let k=1;k<=L.chapas;k++){
+    const y = G.top+G.bodyH - k*chH;
+    if(k<L.chapas) seps += `<line x1="${G.x0}" x2="${G.x1}" y1="${y}" y2="${y}" stroke="#7C8B95" stroke-width="1"/>`;
+    ticks += `<text x="88" y="${y+4}" font-size="11" fill="#5A6B75" font-family="Barlow,sans-serif">${k}</text>`;
+  }
+  const coneY = G.top+G.bodyH;
+  let corr="";
+  for(let y=G.top+4;y<coneY;y+=6) corr += `<line x1="${G.x0}" x2="${G.x1}" y1="${y}" y2="${y}" stroke="#fff" stroke-opacity=".28" stroke-width=".8"/>`;
+  return `
+  <svg viewBox="0 0 104 184" role="img" aria-hidden="true">
+    <defs><clipPath id="c${id}"><path d="${shape}"/></clipPath></defs>
+    <path d="M${G.x0} ${G.top} L44 8 L${G.x1} ${G.top} Z" fill="#C9D2D8" stroke="#7C8B95" stroke-width="1.5" stroke-linejoin="round"/>
+    <path d="${shape}" fill="#FFFFFF" stroke="none"/>
+    <g clip-path="url(#c${id})">
+      <rect class="fill" x="0" y="${base-fillH}" width="104" height="${fillH}" fill="${color}"/>
+      ${corr}
+    </g>
+    ${seps}
+    <line x1="${G.x0}" x2="${G.x1}" y1="${coneY}" y2="${coneY}" stroke="#7C8B95" stroke-width="1.5"/>
+    <path d="${shape}" fill="none" stroke="#5A6B75" stroke-width="2" stroke-linejoin="round"/>
+    <rect x="36" y="${base}" width="16" height="6" fill="#9AA8B1" stroke="#5A6B75" stroke-width="1.5"/>
+    ${ticks}
+  </svg>`;
+}
+
+/* ---------- textos ---------- */
+function haceCuanto(t){
+  const min = Math.max(0, Math.round((Date.now()-t)/60000));
+  if(min<2) return "recién cargado";
+  if(min<60) return `hace ${min} min`;
+  const h = Math.floor(min/60), m = min%60;
+  if(h<24) return `hace ${h} h${m?` ${m} min`:""}`;
+  return t.toLocaleDateString("es-AR",{day:"2-digit",month:"2-digit"}) + " " + t.toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"});
+}
+function ageClass(t){
+  const min = (Date.now()-t)/60000;
+  return min>CONFIG.oldMin ? "old" : min>CONFIG.staleMin ? "stale" : "";
+}
+function fmtChapas(n){ return (Number.isInteger(n)? String(n) : String(nf1.format(n))) + (n===1?" chapa":" chapas"); }
+
+/* ---------- render ---------- */
+const state = {};   // state[linea] = {data|error}
+function render(key){
+  const L = CONFIG.lines[key];
+  const st = state[key];
+  const body = document.getElementById("body-"+key);
+  const total = document.getElementById("total-"+key);
+  const meta  = document.getElementById("meta-"+key);
+  const bar   = document.getElementById("bar-"+key);
+  const color = key==="soja" ? "#5E7F3A" : "#E3A21A";
+
+  if(!st){ return; }
+  if(st.error){
+    total.innerHTML=""; bar.style.width="0"; meta.innerHTML="";
+    const hs = st.error.headers ? `<br><code>Encabezados detectados: ${st.error.headers.join(" | ")}</code>` : "";
+    body.innerHTML = `<div class="error"><strong>No se pudo leer esta planilla.</strong> ${st.error.message}${hs}</div>`;
+    return;
+  }
+  const {silos, last} = st.data;
+  const cap = silos.length * capTn(L);
+  const sum = silos.reduce((a,s)=>a+(s.tn||0),0);
+  const pct = cap ? sum/cap*100 : 0;
+
+  total.innerHTML = `<div class="big">${nf1.format(sum)} <small>Tn de ${nf0.format(cap)} Tn</small></div>`;
+  bar.style.width = pct.toFixed(1)+"%";
+
+  const cls = last ? ageClass(last) : "old";
+  const badge = last
+    ? `<span class="badge ${cls==="old"?"alert":cls==="stale"?"warn":""}">Última carga: ${haceCuanto(last)}</span>`
+    : `<span class="badge alert">Sin cargas registradas</span>`;
+  meta.innerHTML = `${badge}<span>${nf0.format(pct)} % ocupado</span>`;
+
+  body.innerHTML = `<div class="silos">` + silos.map(s=>{
+    const c = s.nodata ? "nodata" : s.error ? "nodata" : ageClass(s.t);
+    let tn, det, age;
+    if(s.nodata){ tn=`—`; det="Sin datos"; age=""; }
+    else if(s.error){ tn=`?`; det=`No entendí «${s.raw}»`; age=haceCuanto(s.t); }
+    else{
+      tn = `${nf1.format(s.tn)} <small>Tn</small>`;
+      det = s.mode==="vacio" ? "Vacío" : s.mode==="cono" ? "Solo cono" : s.mode==="lleno" ? "Lleno" : fmtChapas(s.chapas);
+      age = haceCuanto(s.t);
+    }
+    const aria = s.nodata ? `Silo ${s.n}: sin datos` : s.error ? `Silo ${s.n}: dato ilegible` : `Silo ${s.n}: ${nf1.format(s.tn)} toneladas, ${det}, ${age}`;
+    return `<div class="silo ${c}" tabindex="0" aria-label="${aria}">
+      ${siloSVG(key+s.n, s, L, color)}
+      <div class="name">Silo ${s.n}</div>
+      <div class="tn">${tn}</div>
+      <div class="det">${det}</div>
+      <div class="age">${age}</div>
+    </div>`;
+  }).join("") + `</div>`;
+}
+
+function renderFooter(){
+  const s = CONFIG.lines.soja, g = CONFIG.lines.girasol;
+  const f = n => String(n).replace(".",",");
+  document.getElementById("foot").innerHTML =
+    `Las toneladas se calculan con el nivel cargado en chapas. Soja: cono ${f(s.cono)} Tn + ${f(s.chapa)} Tn por chapa. `+
+    `Girasol: cono ${f(g.cono)} Tn + ${f(g.chapa)} Tn por chapa. Cada silo tiene ${s.chapas} chapas de altura más el cono; `+
+    `con cualquier nivel mayor a cero el cono se cuenta lleno.`;
+}
+
+/* ---------- carga ---------- */
+async function loadLine(key){
+  const L = CONFIG.lines[key];
+  try{
+    const url = L.csv + (L.csv.includes("?")?"&":"?") + "_=" + Date.now();
+    const res = await fetch(url,{cache:"no-store"});
+    if(!res.ok) throw new Error("La planilla respondió con error "+res.status+".");
+    const rows = parseCSV(await res.text());
+    state[key] = {data: extract(rows, L)};
+  }catch(e){
+    // si ya había datos, los dejamos y solo avisamos
+    if(state[key] && state[key].data){
+      state[key].stale = true;
+    }else{
+      state[key] = {error: e};
+    }
+    if(!(e && e.headers)) console.warn(key, e);
+  }
+  render(key);
+}
+
+async function loadAll(){
+  const btn = document.getElementById("btnRefresh");
+  btn.disabled = true;
+  await Promise.all(Object.keys(CONFIG.lines).map(loadLine));
+  btn.disabled = false;
+  const hh = new Date().toLocaleTimeString("es-AR",{hour:"2-digit",minute:"2-digit"});
+  const anyStale = Object.values(state).some(s=>s.stale);
+  document.getElementById("lastFetch").textContent =
+    anyStale ? `No se pudo actualizar a las ${hh}; se muestran los últimos datos` : `Leído a las ${hh}`;
+}
+
+document.getElementById("btnRefresh").addEventListener("click", loadAll);
+renderFooter();
+loadAll();
+setInterval(loadAll, CONFIG.refreshMin*60*1000);
+// refresca solo los "hace X min" sin volver a pedir la planilla
+setInterval(()=>Object.keys(CONFIG.lines).forEach(render), 60*1000);
+</script>
+</body>
+</html>
