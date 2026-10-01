@@ -219,11 +219,14 @@ function parseFecha(s){
    - "lleno"/"completo" -> todas las chapas
    Si hay al menos un valor > 0 se asume el cono lleno. */
 function parseNivel(raw, L){
-  const s = norm(raw);
+  let s = norm(raw);
   if(!s) return null;
   if(/^(vacio|vacia|sin material)$/.test(s) || /^0+([.,]0+)?$/.test(s)) return {chapas:0, tn:0, mode:"vacio"};
-  if(/lleno|llena|completo|completa/.test(s)) return {chapas:L.chapas, tn:capTn(L), mode:"lleno"};
-  if(/^(solo )?(el )?cono/.test(s)) return {chapas:0, tn:L.cono, mode:"cono"};
+  if(!/cono/.test(s) && /lleno|llena|completo|completa/.test(s)) return {chapas:L.chapas, tn:capTn(L), mode:"lleno"};
+  if(/^(solo )?(el )?cono( lleno)?$/.test(s)) return {chapas:0, tn:L.cono, mode:"cono"};
+  // números escritos con letras: "una chapa", "dos chapas", "tres chapas"
+  const words = {un:1, una:1, uno:1, dos:2, tres:3, cuatro:4};
+  s = s.replace(/\b(un|una|uno|dos|tres|cuatro)\b/g, w => words[w]);
   let n=null;
   const frac = s.match(/(\d+)\s*\/\s*(\d+)/);
   const num  = s.match(/\d+(?:[.,]\d+)?/);
@@ -233,6 +236,8 @@ function parseNivel(raw, L){
   }else if(num){
     n = parseFloat(num[0].replace(",","."));
     if(/media/.test(s) && Number.isInteger(n)) n += 0.5;
+  }else if(/media|medio/.test(s)){
+    n = 0.5;   // "media chapa"
   }
   if(n===null || isNaN(n)) return {error:true, raw:String(raw).trim()};
   n = Math.min(Math.max(n,0), L.chapas);
