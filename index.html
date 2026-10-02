@@ -216,7 +216,7 @@ const CONFIG = {
     },
     girasol: {
       csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSPwdonlIsyjr7cLcQm0tdn-D5Q5hi2345xHQA1bQACv9D8qPABYMtHijFjxPgEoejnE8SWRjsKovpd/pub?output=csv",
-      cono: 3, chapa: 11.66, chapas: 3, cols: {},
+      cono: 0, chapa: 35/3, chapas: 3, conoSolo: 3, cols: {},   // girasol: lleno = 35 Tn (3 chapas); si el operario carga solo «Cono» = 3 Tn
       // columnas (base 0): U=20 y V=21 -> destino de silo
       info: {free:[20,21]}
     }
@@ -275,7 +275,7 @@ function parseNivel(raw, L){
   }
   if(/^(vacio|vacia|sin material)$/.test(s) || /^0+([.,]0+)?$/.test(s)) return {chapas:0, tn:0, mode:"vacio"};
   if(!/cono/.test(s) && /lleno|llena|completo|completa/.test(s)) return {chapas:L.chapas, tn:capTn(L), mode:"lleno"};
-  if(/^(solo )?(el )?cono( lleno)?$/.test(s)) return {chapas:0, tn:L.cono, mode:"cono"};
+  if(/^(solo )?(el )?cono( lleno)?$/.test(s)) return {chapas:0, tn:(L.conoSolo ?? L.cono), mode:"cono"};
   // números escritos con letras: "una chapa", "dos chapas", "tres chapas"
   const words = {un:1, una:1, uno:1, dos:2, tres:3, cuatro:4};
   s = s.replace(/\b(un|una|uno|dos|tres|cuatro)\b/g, w => words[w]);
@@ -540,11 +540,11 @@ function renderInfo(key, info){
 
 function renderFooter(){
   const s = CONFIG.lines.soja, g = CONFIG.lines.girasol;
-  const f = n => String(n).replace(".",",");
+  const f = n => String(Math.round(n*100)/100).replace(".",",");
   document.getElementById("foot").innerHTML =
-    `Las toneladas se calculan con el nivel cargado en chapas. Soja: cono ${f(s.cono)} Tn + ${f(s.chapa)} Tn por chapa. `+
-    `Girasol: cono ${f(g.cono)} Tn + ${f(g.chapa)} Tn por chapa. Cada silo tiene ${s.chapas} chapas de altura más el cono; `+
-    `con cualquier nivel mayor a cero el cono se cuenta lleno. `+
+    `Las toneladas se calculan con el nivel cargado en chapas (cada silo tiene ${s.chapas} chapas de altura). `+
+    `Soja: cono ${f(s.cono)} Tn + ${f(s.chapa)} Tn por chapa; con cualquier nivel mayor a cero el cono se cuenta lleno. `+
+    `Girasol: ${f(g.chapa)} Tn por chapa (${f(g.chapa*g.chapas)} Tn con el silo lleno); con las chapas el cono no se suma, y si cargan solo «Cono» se toman ${f(g.conoSolo)} Tn. `+
     `Un silo «Cerrado» tiene material pero no está disponible para despachar (pellet quemado, húmedo, con mucho polvillo, etc.); se muestra con rayas rojas y su último nivel conocido, y no se suma a lo disponible para despacho.`;
 }
 
