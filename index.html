@@ -103,7 +103,9 @@
   .total .big{font-family:"Barlow Condensed",sans-serif;font-weight:600;font-size:30px;line-height:1}
   .total .big small{font-size:16px;color:var(--muted);font-weight:500}
   .bar{height:8px;background:var(--soft);border-radius:4px;margin:10px 0 4px;overflow:hidden}
+  .bar{display:flex}
   .bar > i{display:block;height:100%;background:var(--accent);width:0;transition:width .6s ease}
+  .bar > b{display:block;height:100%;width:0;transition:width .6s ease;background:repeating-linear-gradient(45deg,var(--alert) 0 4px,transparent 4px 8px)}
   .meta{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 16px;font-size:13px;color:var(--muted);min-height:20px}
   .badge{font-weight:600}
   .badge.warn{color:var(--warn)}
@@ -122,6 +124,10 @@
   .silo.stale .age{color:var(--warn);font-weight:600}
   .silo.old .age{color:var(--alert);font-weight:600}
   .silo.nodata .tn{color:var(--steel)}
+  .silo.closed{box-shadow:inset 0 0 0 2px var(--alert)}
+  .silo .closed-tag{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;background:var(--alert);color:#fff;border-radius:4px;padding:0 6px;margin-top:3px}
+  .silo.closed .det{color:var(--alert);font-weight:600}
+  .s-out.closed{stroke:var(--alert)}
 
   .info{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-top:12px}
   .info:empty{display:none}
@@ -168,7 +174,7 @@
       <h2 id="t-soja">Silos de soja</h2>
       <div class="total" id="total-soja"></div>
     </div>
-    <div class="bar"><i id="bar-soja"></i></div>
+    <div class="bar"><i id="bar-soja"></i><b id="barc-soja"></b></div>
     <div class="meta" id="meta-soja"></div>
     <div class="info" id="info-soja"></div>
     <div id="body-soja"><div class="state">Cargando datos…</div></div>
@@ -179,7 +185,7 @@
       <h2 id="t-girasol">Silos de girasol</h2>
       <div class="total" id="total-girasol"></div>
     </div>
-    <div class="bar"><i id="bar-girasol"></i></div>
+    <div class="bar"><i id="bar-girasol"></i><b id="barc-girasol"></b></div>
     <div class="meta" id="meta-girasol"></div>
     <div class="info" id="info-girasol"></div>
     <div id="body-girasol"><div class="state">Cargando datos…</div></div>
@@ -259,6 +265,14 @@ function parseFecha(s){
 function parseNivel(raw, L){
   let s = norm(raw);
   if(!s) return null;
+  // CERRADO: el silo tiene material pero no está disponible para despachar
+  // (pellet quemado, húmedo, con mucho polvillo, etc.)
+  if(/cerrad[oa]|bloquead[oa]|no disponible/.test(s)){
+    const rest = s.replace(/cerrad[oa]|bloquead[oa]|no disponible|[-:()]/g," ").replace(/\s+/g," ").trim();
+    const v = rest ? parseNivel(rest, L) : null;
+    if(v && !v.error && !v.nolevel) return {...v, closed:true};
+    return {closed:true, nolevel:true};
+  }
   if(/^(vacio|vacia|sin material)$/.test(s) || /^0+([.,]0+)?$/.test(s)) return {chapas:0, tn:0, mode:"vacio"};
   if(!/cono/.test(s) && /lleno|llena|completo|completa/.test(s)) return {chapas:L.chapas, tn:capTn(L), mode:"lleno"};
   if(/^(solo )?(el )?cono( lleno)?$/.test(s)) return {chapas:0, tn:L.cono, mode:"cono"};
@@ -356,9 +370,20 @@ function extract(rows, L){
 
   const silos = nums.map(n=>{
     const idx = cols[n];
-    for(const x of recs){
+    for(let k=0;k<recs.length;k++){
+      const x = recs[k];
       const v = parseNivel(x.r[idx], L);
-      if(v) return {n, ...v, t:x.t, op: opCol>=0 ? String(x.r[opCol]||"").trim() : ""};
+      if(!v) continue;
+      const op = opCol>=0 ? String(x.r[opCol]||"").trim() : "";
+      if(v.closed && v.nolevel){
+        // cerrado sin nivel informado: se muestra el último nivel conocido
+        for(let j=k+1;j<recs.length;j++){
+          const p = parseNivel(recs[j].r[idx], L);
+          if(p && !p.error && !p.nolevel) return {n, chapas:p.chapas, tn:p.tn, mode:p.mode, closed:true, t:x.t, levelT:recs[j].t, op};
+        }
+        return {n, closed:true, unknown:true, t:x.t, op};
+      }
+      return {n, ...v, t:x.t, op};
     }
     return {n, nodata:true};
   });
@@ -371,6 +396,7 @@ function extract(rows, L){
 // geometría: cuerpo 3 chapas de 40 u cada una, cono de 30 u
 const G = {x0:8, x1:80, top:22, bodyH:120, coneH:30};
 function siloSVG(id, s, L, color){
+  const closed = !!s.closed;
   const base = G.top + G.bodyH + G.coneH;           // y del fondo del cono
   const chH = G.bodyH / L.chapas;
   let fillH = 0;
@@ -390,16 +416,18 @@ function siloSVG(id, s, L, color){
   for(let y=G.top+4;y<coneY;y+=6) corr += `<line x1="${G.x0}" x2="${G.x1}" y1="${y}" y2="${y}" class="s-corr" stroke-width=".8"/>`;
   return `
   <svg viewBox="0 0 104 184" role="img" aria-hidden="true">
-    <defs><clipPath id="c${id}"><path d="${shape}"/></clipPath></defs>
+    <defs><clipPath id="c${id}"><path d="${shape}"/></clipPath>
+    <pattern id="h${id}" width="9" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="4.5" height="9" fill="var(--alert)" opacity=".5"/></pattern></defs>
     <path d="M${G.x0} ${G.top} L44 8 L${G.x1} ${G.top} Z" class="s-roof"/>
     <path class="s-body" d="${shape}"/>
     <g clip-path="url(#c${id})">
       <rect class="fill" x="0" y="${base-fillH}" width="104" height="${fillH}" fill="${color}"/>
       ${corr}
+      ${closed?`<rect x="0" y="0" width="104" height="${base}" fill="url(#h${id})"/>`:""}
     </g>
     ${seps}
     <line x1="${G.x0}" x2="${G.x1}" y1="${coneY}" y2="${coneY}" class="s-line" stroke-width="1.5"/>
-    <path class="s-out" d="${shape}"/>
+    <path class="s-out${closed?" closed":""}" d="${shape}"/>
     <rect x="36" y="${base}" width="16" height="6" class="s-outlet"/>
     ${ticks}
   </svg>`;
@@ -441,16 +469,22 @@ function render(key){
   const {silos, last} = st.data;
   const cap = silos.length * capTn(L);
   const sum = silos.reduce((a,s)=>a+(s.tn||0),0);
+  const closedTn = silos.filter(s=>s.closed).reduce((a,s)=>a+(s.tn||0),0);
+  const closedN  = silos.filter(s=>s.closed).length;
+  const dispTn   = sum - closedTn;
   const pct = cap ? sum/cap*100 : 0;
 
   total.innerHTML = `<div class="big">${nf1.format(sum)} <small>Tn de ${nf0.format(cap)} Tn</small></div>`;
-  bar.style.width = pct.toFixed(1)+"%";
+  bar.style.width = (cap ? dispTn/cap*100 : 0).toFixed(1)+"%";
+  document.getElementById("barc-"+key).style.width = (cap ? closedTn/cap*100 : 0).toFixed(1)+"%";
 
   const cls = last ? ageClass(last) : "old";
   const badge = last
     ? `<span class="badge ${cls==="old"?"alert":cls==="stale"?"warn":""}">Última carga: ${haceCuanto(last)}</span>`
     : `<span class="badge alert">Sin cargas registradas</span>`;
-  meta.innerHTML = `${badge}<span>${nf0.format(pct)} % ocupado</span>`;
+  const closedNote = closedN
+    ? `<span class="badge alert">${closedN} ${closedN===1?"silo cerrado":"silos cerrados"}${closedTn?` · ${nf1.format(closedTn)} Tn no disponibles`:""}</span>` : "";
+  meta.innerHTML = `${badge}<span>${nf0.format(pct)} % ocupado · ${nf1.format(dispTn)} Tn disponibles para despacho</span>${closedNote}`;
 
   renderInfo(key, st.data.info);
   const fillN = st.data.info ? st.data.info.siloN : null;
@@ -459,19 +493,21 @@ function render(key){
     let tn, det, age;
     if(s.nodata){ tn=`—`; det="Sin datos"; age=""; }
     else if(s.error){ tn=`?`; det=`No entendí «${s.raw}»`; age=haceCuanto(s.t); }
+    else if(s.unknown){ tn=`—`; det="Nivel sin dato"; age=haceCuanto(s.t); }
     else{
       tn = `${nf1.format(s.tn)} <small>Tn</small>`;
       det = s.mode==="vacio" ? "Vacío" : s.mode==="cono" ? "Solo cono" : s.mode==="lleno" ? "Lleno" : fmtChapas(s.chapas);
       age = haceCuanto(s.t);
     }
-    const aria = s.nodata ? `Silo ${s.n}: sin datos` : s.error ? `Silo ${s.n}: dato ilegible` : `Silo ${s.n}: ${nf1.format(s.tn)} toneladas, ${det}, ${age}`;
+    const aria = s.nodata ? `Silo ${s.n}: sin datos` : s.error ? `Silo ${s.n}: dato ilegible` : s.unknown ? `Silo ${s.n}: cerrado, no disponible para despachar, nivel sin dato` : `Silo ${s.n}: ${nf1.format(s.tn)} toneladas, ${det}, ${age}${s.closed?", cerrado, no disponible para despachar":""}`;
     const isFill = fillN!=null && s.n===fillN;
-    return `<div class="silo ${c}${isFill?" filling":""}" tabindex="0" aria-label="${aria}${isFill?", llenándose ahora":""}">
+    return `<div class="silo ${c}${isFill?" filling":""}${s.closed?" closed":""}" tabindex="0" aria-label="${aria}${isFill?", llenándose ahora":""}">
       ${siloSVG(key+s.n, s, L, color)}
       <div class="name">Silo ${s.n}</div>
       <div class="tn">${tn}</div>
       <div class="det">${det}</div>
       <div class="age">${age}</div>
+      ${s.closed?'<div class="closed-tag">Cerrado</div>':""}
       ${isFill?'<div class="fill-tag">Llenando</div>':""}
     </div>`;
   }).join("") + `</div>`;
@@ -508,7 +544,8 @@ function renderFooter(){
   document.getElementById("foot").innerHTML =
     `Las toneladas se calculan con el nivel cargado en chapas. Soja: cono ${f(s.cono)} Tn + ${f(s.chapa)} Tn por chapa. `+
     `Girasol: cono ${f(g.cono)} Tn + ${f(g.chapa)} Tn por chapa. Cada silo tiene ${s.chapas} chapas de altura más el cono; `+
-    `con cualquier nivel mayor a cero el cono se cuenta lleno.`;
+    `con cualquier nivel mayor a cero el cono se cuenta lleno. `+
+    `Un silo «Cerrado» tiene material pero no está disponible para despachar (pellet quemado, húmedo, con mucho polvillo, etc.); se muestra con rayas rojas y su último nivel conocido, y no se suma a lo disponible para despacho.`;
 }
 
 /* ---------- carga ---------- */
