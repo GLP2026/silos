@@ -28,6 +28,7 @@
     --tile:#FFFFFF;
     --err-bg:#FBEDEA;--err-ink:#6A2218;
     --silo-body:#FFFFFF;--silo-roof:#C9D2D8;--silo-line:#7C8B95;--silo-out:#5A6B75;--silo-outlet:#9AA8B1;--silo-tick:#5A6B75;--silo-corr:rgba(255,255,255,.28);
+    --tex:#6B3FB8;--tex-soft:rgba(107,63,184,.08);
     color-scheme:light;
   }
   :root[data-theme="dark"]{
@@ -44,6 +45,7 @@
     --tile:#1F2F3A;
     --err-bg:#3A1D19;--err-ink:#FFC9C0;
     --silo-body:#22333E;--silo-roof:#3A4B56;--silo-line:#5B6E7A;--silo-out:#9DB0BB;--silo-outlet:#5B6E7A;--silo-tick:#98A8B2;--silo-corr:rgba(0,0,0,.22);
+    --tex:#8A63D6;--tex-soft:rgba(138,99,214,.14);
     color-scheme:dark;
   }
   .s-roof{fill:var(--silo-roof);stroke:var(--silo-line);stroke-width:1.5;stroke-linejoin:round}
@@ -111,9 +113,13 @@
   .badge.warn{color:var(--warn)}
   .badge.alert{color:var(--alert)}
 
-  .silos{
-    display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:10px 6px;margin-top:14px;
-  }
+  .silos{display:flex;flex-wrap:wrap;gap:10px 6px;margin-top:14px;align-items:stretch}
+  .silos > .silo{flex:1 1 104px;min-width:104px}
+  .grp{flex:var(--k) 1 calc(var(--k) * 104px);min-width:0;display:flex;flex-direction:column;border:2px solid var(--tex);border-radius:12px;background:var(--tex-soft);padding:4px 4px 0;overflow:hidden}
+  .grp-row{display:flex;flex:1}
+  .grp-row .silo{flex:1 1 0;min-width:0}
+  .grp-label{margin:4px -4px 0;background:var(--tex);color:#fff;font-weight:600;font-size:12px;letter-spacing:.04em;text-transform:uppercase;text-align:center;padding:3px 6px}
+  .mat-tag{font-size:11px;color:var(--muted);margin-top:3px}
   .silo{display:flex;flex-direction:column;align-items:center;text-align:center;padding:6px 2px 8px;border-radius:8px}
   .silo svg{width:100%;max-width:112px;height:auto;display:block}
   .silo .name{font-family:"Barlow Condensed",sans-serif;font-weight:600;font-size:18px;margin-top:2px}
@@ -211,6 +217,9 @@ const CONFIG = {
     soja: {
       csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSXy6_HqO9QxUB-BN6XPWMO6TA2FVpqWcTWfiKLKZof9e5a9i7A_T4TC71x3z3HD6QGIU7kNyutv4ZT/pub?output=csv",
       cono: 5, chapa: 13.33, chapas: 3, cols: {},
+      // material por silo: lo toma de las columnas «Material silo N» (último valor cargado).
+      // matDefault = lo que se asume mientras el operario no cargue nada. tex = texturizado, pellet = pellet
+      matDefault: {1:"tex", 2:"tex", 3:"pellet", 4:"pellet", 5:"pellet", 6:"pellet"},
       // columnas (base 0): K=10 humedad pellet, L=11 destino, M=12 silo destino, O=14 temp. salida enfriador
       info: {hum:10, dest:11, silo:12, temp:14}
     },
@@ -304,6 +313,12 @@ function numOf(s,min,max){
   const v = parseFloat(m[1].replace(",","."));
   return (v>=min && v<=max) ? v : null;
 }
+function parseMat(v){
+  const s = norm(v);
+  if(/textur/.test(s)) return {key:"tex"};
+  if(/pelet|pellet/.test(s)) return {key:"pellet"};
+  return {key:"otro", txt:String(v).replace(/\s+/g," ").trim()};
+}
 function lastNum(recs,i,min,max){
   for(const x of recs){ const v = numOf(cellTxt(x.r,i),min,max); if(v!==null) return {v, t:x.t}; }
   return null;
@@ -386,6 +401,20 @@ function extract(rows, L){
       return {n, ...v, t:x.t, op};
     }
     return {n, nodata:true};
+  });
+  const matCols = {...(L.matCols||{})};
+  head.forEach((hd,i)=>{
+    const m = norm(hd).match(/material\s*(?:del\s*)?silo\s*(\d+)/);
+    if(m && matCols[+m[1]]===undefined) matCols[+m[1]] = i;
+  });
+  silos.forEach(s=>{
+    let mat = null;
+    const idx = matCols[s.n];
+    if(idx!==undefined){
+      for(const x of recs){ const v = cellTxt(x.r,idx); if(v){ mat = parseMat(v); break; } }
+    }
+    if(!mat && L.matDefault && L.matDefault[s.n]) mat = {key:L.matDefault[s.n], def:true};
+    s.mat = mat;
   });
   const last = recs.length ? recs[0].t : null;
   const info = L.info ? buildInfo(L.info, recs, head) : null;
@@ -488,7 +517,7 @@ function render(key){
 
   renderInfo(key, st.data.info);
   const fillN = st.data.info ? st.data.info.siloN : null;
-  body.innerHTML = `<div class="silos">` + silos.map(s=>{
+  const items = silos.map(s=>{
     const c = s.nodata ? "nodata" : s.error ? "nodata" : ageClass(s.t);
     let tn, det, age;
     if(s.nodata){ tn=`—`; det="Sin datos"; age=""; }
@@ -501,16 +530,29 @@ function render(key){
     }
     const aria = s.nodata ? `Silo ${s.n}: sin datos` : s.error ? `Silo ${s.n}: dato ilegible` : s.unknown ? `Silo ${s.n}: cerrado, no disponible para despachar, nivel sin dato` : `Silo ${s.n}: ${nf1.format(s.tn)} toneladas, ${det}, ${age}${s.closed?", cerrado, no disponible para despachar":""}`;
     const isFill = fillN!=null && s.n===fillN;
-    return `<div class="silo ${c}${isFill?" filling":""}${s.closed?" closed":""}" tabindex="0" aria-label="${aria}${isFill?", llenándose ahora":""}">
+    const mk = s.mat ? s.mat.key : null;
+    const matLbl = mk==="pellet" ? '<div class="mat-tag">Pellet de soja</div>' : mk==="otro" ? `<div class="mat-tag">${s.mat.txt}</div>` : "";
+    const html = `<div class="silo ${c}${isFill?" filling":""}${s.closed?" closed":""}" tabindex="0" aria-label="${aria}${isFill?", llenándose ahora":""}">
       ${siloSVG(key+s.n, s, L, color)}
       <div class="name">Silo ${s.n}</div>
       <div class="tn">${tn}</div>
       <div class="det">${det}</div>
       <div class="age">${age}</div>
+      ${matLbl}
       ${s.closed?'<div class="closed-tag">Cerrado</div>':""}
       ${isFill?'<div class="fill-tag">Llenando</div>':""}
     </div>`;
-  }).join("") + `</div>`;
+    return {mk, html};
+  });
+  let out = "", i = 0;
+  while(i < items.length){
+    if(items[i].mk === "tex"){
+      let j = i; while(j < items.length && items[j].mk === "tex") j++;
+      out += `<div class="grp" style="--k:${j-i}"><div class="grp-row">${items.slice(i,j).map(x=>x.html).join("")}</div><div class="grp-label">Texturizado de soja</div></div>`;
+      i = j;
+    }else{ out += items[i].html; i++; }
+  }
+  body.innerHTML = `<div class="silos">${out}</div>`;
 }
 
 function tile(lbl, val, sub, cls){
@@ -545,6 +587,7 @@ function renderFooter(){
     `Las toneladas se calculan con el nivel cargado en chapas (cada silo tiene ${s.chapas} chapas de altura). `+
     `Soja: cono ${f(s.cono)} Tn + ${f(s.chapa)} Tn por chapa; con cualquier nivel mayor a cero el cono se cuenta lleno. `+
     `Girasol: ${f(g.chapa)} Tn por chapa (${f(g.chapa*g.chapas)} Tn con el silo lleno); con las chapas el cono no se suma, y si cargan solo «Cono» se toman ${f(g.conoSolo)} Tn. `+
+    `El material de cada silo de soja (Texturizado o Pellet) se toma de las columnas «Material silo N» del formulario; mientras no esté cargado, los silos 1 y 2 se muestran como Texturizado de soja. `+
     `Un silo «Cerrado» tiene material pero no está disponible para despachar (pellet quemado, húmedo, con mucho polvillo, etc.); se muestra con rayas rojas y su último nivel conocido, y no se suma a lo disponible para despacho.`;
 }
 
