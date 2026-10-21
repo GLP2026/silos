@@ -145,6 +145,26 @@
   .tile.celda{border-color:var(--accent);background:var(--soft)}
   .silo.filling{background:var(--soft);box-shadow:inset 0 0 0 2px var(--accent)}
   .silo .fill-tag{font-size:11px;font-weight:600;background:var(--accent);color:#fff;border-radius:4px;padding:0 6px;margin-top:3px}
+  .hist{margin-top:16px;border-top:1px solid var(--line);padding-top:12px;position:relative}
+  .hist-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:4px 12px;margin-bottom:4px}
+  .hist-head h3{margin:0;font-family:"Barlow Condensed",sans-serif;font-weight:600;font-size:20px}
+  .hist-head span{font-size:12px;color:var(--muted)}
+  .hist svg{display:block;width:100%;height:auto;touch-action:pan-y}
+  .h-bg{fill:var(--soft)}
+  .h-area{fill:var(--accent);fill-opacity:.9}
+  .h-dot{fill:var(--ink)}
+  .h-grid{stroke:var(--line);stroke-width:1}
+  .h-cur{stroke:var(--ink);stroke-width:1;stroke-dasharray:3 3;display:none}
+  .h-lbl{fill:var(--ink);font:600 14px "Barlow Condensed",sans-serif}
+  .h-val{fill:var(--ink);font:600 14px "Barlow Condensed",sans-serif}
+  .h-val.closed{fill:var(--alert)}
+  .h-tick{fill:var(--muted);font:12px "Barlow",sans-serif}
+  .h-empty{fill:var(--muted);font:12px "Barlow",sans-serif}
+  .h-tip{position:absolute;top:34px;pointer-events:none;background:var(--tile);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:13px;box-shadow:0 4px 14px rgba(0,0,0,.28);display:none;white-space:nowrap;z-index:5}
+  .h-tip .t{color:var(--muted);font-size:12px;margin-bottom:2px}
+  .h-tip .r{display:flex;justify-content:space-between;gap:14px}
+  .h-tip .r b{font-weight:600}
+  .h-tip .r.closed b{color:var(--alert)}
   .state{padding:24px 4px;color:var(--muted)}
   .error{border-left:4px solid var(--alert);background:var(--err-bg);color:var(--err-ink);padding:12px 14px;border-radius:6px;font-size:14px;margin-top:12px}
   .error code{font-size:12px;word-break:break-word}
@@ -184,6 +204,7 @@
     <div class="meta" id="meta-soja"></div>
     <div class="info" id="info-soja"></div>
     <div id="body-soja"><div class="state">Cargando datos…</div></div>
+    <div class="hist" id="hist-soja"></div>
   </section>
 
   <section class="panel girasol" id="panel-girasol" aria-labelledby="t-girasol">
@@ -195,6 +216,7 @@
     <div class="meta" id="meta-girasol"></div>
     <div class="info" id="info-girasol"></div>
     <div id="body-girasol"><div class="state">Cargando datos…</div></div>
+    <div class="hist" id="hist-girasol"></div>
   </section>
 </main>
 
@@ -416,9 +438,27 @@ function extract(rows, L){
     if(!mat && L.matDefault && L.matDefault[s.n]) mat = {key:L.matDefault[s.n], def:true};
     s.mat = mat;
   });
+  // historial por silo (cronológico). Cada carga del operario es un punto; el nivel se mantiene hasta la siguiente.
+  const chron = recs.slice().reverse();
+  const cut = Date.now() - 72*3600*1000;
+  const series = nums.map(n=>{
+    const idx = cols[n]; let pts = []; let lastTn = null;
+    for(const x of chron){
+      const v = parseNivel(x.r[idx], L);
+      if(!v || v.error) continue;
+      let tn;
+      if(v.closed && v.nolevel){ if(lastTn===null) continue; tn = lastTn; }
+      else tn = v.tn;
+      lastTn = tn;
+      pts.push({t:x.t, tn, closed:!!v.closed});
+    }
+    const k = pts.findIndex(q=>q.t>=cut);
+    pts = k<0 ? pts.slice(-1) : pts.slice(Math.max(0,k-1));
+    return {n, pts};
+  });
   const last = recs.length ? recs[0].t : null;
   const info = L.info ? buildInfo(L.info, recs, head) : null;
-  return {silos, last, info};
+  return {silos, last, info, series};
 }
 
 /* ---------- dibujo del silo ---------- */
@@ -490,7 +530,7 @@ function render(key){
 
   if(!st){ return; }
   if(st.error){
-    total.innerHTML=""; bar.style.width="0"; meta.innerHTML=""; document.getElementById("info-"+key).innerHTML="";
+    total.innerHTML=""; bar.style.width="0"; meta.innerHTML=""; document.getElementById("info-"+key).innerHTML=""; document.getElementById("hist-"+key).innerHTML="";
     const hs = st.error.headers ? `<br><code>Encabezados detectados: ${st.error.headers.join(" | ")}</code>` : "";
     body.innerHTML = `<div class="error"><strong>No se pudo leer esta planilla.</strong> ${st.error.message}${hs}</div>`;
     return;
@@ -553,6 +593,89 @@ function render(key){
     }else{ out += items[i].html; i++; }
   }
   body.innerHTML = `<div class="silos">${out}</div>`;
+  renderHist(key, st.data.series, L);
+}
+
+/* ---------- historial de las últimas 24 h ---------- */
+function renderHist(key, series, L){
+  const el = document.getElementById("hist-"+key);
+  if(!series || !series.length){ el.innerHTML=""; return; }
+  const W = Math.max(300, Math.round(el.clientWidth || 560));
+  const now = Date.now(), span = 24*3600*1000, start = now - span;
+  const padL = 54, padR = 66, rowH = 26, gap = 6, top = 4, axisH = 22;
+  const pw = W - padL - padR, cap = capTn(L);
+  const H = top + series.length*(rowH+gap) + axisH;
+  const X = t => padL + (t-start)/span*pw;
+  const pad2 = n => String(n).padStart(2,"0");
+
+  // ticks cada 6 h (horas del reloj)
+  const ticks = [];
+  const d = new Date(start); d.setMinutes(0,0,0);
+  for(d.setHours(d.getHours()+1); d.getTime()<=now; d.setHours(d.getHours()+1)){
+    if(d.getHours()%6===0) ticks.push({t:d.getTime(), lbl:pad2(d.getHours())+":00"});
+  }
+  const gridBottom = top + series.length*(rowH+gap) - gap;
+  let g = ticks.filter(k=>X(k.t) < padL+pw-34).map(k=>`<line class="h-grid" x1="${X(k.t)}" x2="${X(k.t)}" y1="${top}" y2="${gridBottom}"/>
+    <text class="h-tick" x="${X(k.t)}" y="${H-6}" text-anchor="middle">${k.lbl}</text>`).join("");
+  g += `<text class="h-tick" x="${padL+pw}" y="${H-6}" text-anchor="end">ahora</text>`;
+
+  series.forEach((s,i)=>{
+    const y0 = top + i*(rowH+gap), base = y0+rowH;
+    const Y = tn => base - Math.min(1, Math.max(0, tn/cap))*rowH;
+    const carry = [...s.pts].reverse().find(q=>q.t<start);
+    const inner = s.pts.filter(q=>q.t>=start && q.t<=now);
+    const seq = carry ? [{t:start, tn:carry.tn, closed:carry.closed}, ...inner] : inner;
+    g += `<text class="h-lbl" x="0" y="${y0+rowH/2+5}">Silo ${s.n}</text>`;
+    g += `<rect class="h-bg" x="${padL}" y="${y0}" width="${pw}" height="${rowH}" rx="3"/>`;
+    if(!seq.length){
+      g += `<text class="h-empty" x="${padL+8}" y="${y0+rowH/2+4}">Sin cargas en las últimas 24 h</text>`;
+      return;
+    }
+    let path = `M${X(seq[0].t)} ${base} V${Y(seq[0].tn)}`;
+    for(let j=1;j<seq.length;j++) path += ` H${X(seq[j].t)} V${Y(seq[j].tn)}`;
+    path += ` H${X(now)} V${base} Z`;
+    g += `<path class="h-area" d="${path}"/>`;
+    seq.forEach((q,j)=>{
+      if(!q.closed) return;
+      const x0 = X(q.t), x1 = X(j+1<seq.length ? seq[j+1].t : now);
+      g += `<rect x="${x0}" y="${y0}" width="${Math.max(0,x1-x0)}" height="${rowH}" fill="url(#hc-${key})"/>`;
+    });
+    inner.forEach(q=>{ g += `<circle class="h-dot" cx="${X(q.t)}" cy="${Y(q.tn)}" r="1.8"/>`; });
+    const cur = seq[seq.length-1];
+    g += `<text class="h-val${cur.closed?" closed":""}" x="${W-padR+8}" y="${y0+rowH/2+5}">${nf1.format(cur.tn)} Tn</text>`;
+  });
+
+  el.innerHTML = `
+    <div class="hist-head"><h3>Últimas 24 h</h3><span>Cada punto es una carga; el nivel se mantiene hasta la siguiente. Rayado rojo: silo cerrado.</span></div>
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Historial de niveles de los silos de ${key} en las últimas 24 horas">
+      <defs><pattern id="hc-${key}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" style="fill:var(--alert);fill-opacity:.65"/></pattern></defs>
+      ${g}
+      <line class="h-cur" id="cur-${key}" x1="0" x2="0" y1="${top}" y2="${gridBottom}"/>
+    </svg>
+    <div class="h-tip" id="tip-${key}"></div>`;
+
+  // hover / toque: muestra el nivel de cada silo en ese momento
+  const svg = el.querySelector("svg"), cur = el.querySelector(".h-cur"), tip = el.querySelector(".h-tip");
+  const valueAt = (s,t)=>{ let r=null; for(const q of s.pts){ if(q.t<=t) r=q; else break; } return r; };
+  const hide = ()=>{ cur.style.display="none"; tip.style.display="none"; };
+  svg.addEventListener("pointerleave", hide);
+  svg.addEventListener("pointermove", e=>{
+    const r = svg.getBoundingClientRect();
+    const sx = (e.clientX - r.left) * (W / r.width);
+    if(sx < padL || sx > padL+pw){ hide(); return; }
+    const t = start + (sx-padL)/pw*span;
+    cur.setAttribute("x1", sx); cur.setAttribute("x2", sx); cur.style.display = "block";
+    const when = new Date(t).toLocaleString("es-AR",{weekday:"short", hour:"2-digit", minute:"2-digit", hour12:false});
+    tip.innerHTML = `<div class="t">${when}</div>` + series.map(s=>{
+      const v = valueAt(s,t);
+      return `<div class="r${v&&v.closed?" closed":""}"><span>Silo ${s.n}</span><b>${v ? nf1.format(v.tn)+" Tn"+(v.closed?" (cerrado)":"") : "sin dato"}</b></div>`;
+    }).join("");
+    tip.style.display = "block";
+    const er = el.getBoundingClientRect();
+    let left = e.clientX - er.left + 14;
+    if(left + tip.offsetWidth > er.width) left = e.clientX - er.left - 14 - tip.offsetWidth;
+    tip.style.left = Math.max(0,left) + "px";
+  });
 }
 
 function tile(lbl, val, sub, cls){
@@ -588,6 +711,7 @@ function renderFooter(){
     `Soja: cono ${f(s.cono)} Tn + ${f(s.chapa)} Tn por chapa; con cualquier nivel mayor a cero el cono se cuenta lleno. `+
     `Girasol: ${f(g.chapa)} Tn por chapa (${f(g.chapa*g.chapas)} Tn con el silo lleno); con las chapas el cono no se suma, y si cargan solo «Cono» se toman ${f(g.conoSolo)} Tn. `+
     `El material de cada silo de soja (Texturizado o Pellet) se toma de las columnas «Material silo N» del formulario; mientras no esté cargado, los silos 1 y 2 se muestran como Texturizado de soja. `+
+    `Debajo de los silos, «Últimas 24 h» muestra el nivel de cada silo en el tiempo (pasá el mouse o el dedo para ver los valores de cada hora). `+
     `Un silo «Cerrado» tiene material pero no está disponible para despachar (pellet quemado, húmedo, con mucho polvillo, etc.); se muestra con rayas rojas y su último nivel conocido, y no se suma a lo disponible para despacho.`;
 }
 
@@ -632,6 +756,7 @@ function applyTheme(t){
 applyTheme(document.documentElement.getAttribute("data-theme")==="light" ? "light" : "dark");
 btnTheme.addEventListener("click", ()=> applyTheme(document.documentElement.getAttribute("data-theme")==="dark" ? "light" : "dark"));
 
+let _rz; window.addEventListener("resize", ()=>{ clearTimeout(_rz); _rz = setTimeout(()=>Object.keys(CONFIG.lines).forEach(render), 200); });
 document.getElementById("btnRefresh").addEventListener("click", loadAll);
 renderFooter();
 loadAll();
