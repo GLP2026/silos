@@ -120,6 +120,9 @@
   .grp-row .silo{flex:1 1 0;min-width:0}
   .grp-label{margin:4px -4px 0;background:var(--tex);color:#fff;font-weight:600;font-size:12px;letter-spacing:.04em;text-transform:uppercase;text-align:center;padding:3px 6px}
   .mat-tag{font-size:11px;color:var(--muted);margin-top:3px}
+  .hum-avg{font-size:14px;font-weight:600;margin-top:4px;line-height:1.2;white-space:nowrap}
+  .hum-avg small{display:block;font-size:11px;font-weight:400;color:var(--muted)}
+  .hum-avg.none{font-size:11px;font-weight:400;color:var(--muted)}
   .silo{display:flex;flex-direction:column;align-items:center;text-align:center;padding:6px 2px 8px;border-radius:8px}
   .silo svg{width:100%;max-width:112px;height:auto;display:block}
   .silo .name{font-family:"Barlow Condensed",sans-serif;font-weight:600;font-size:18px;margin-top:2px}
@@ -249,7 +252,8 @@ const CONFIG = {
       csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSPwdonlIsyjr7cLcQm0tdn-D5Q5hi2345xHQA1bQACv9D8qPABYMtHijFjxPgEoejnE8SWRjsKovpd/pub?output=csv",
       cono: 0, chapa: 35/3, chapas: 3, conoSolo: 3, cols: {},   // girasol: lleno = 35 Tn (3 chapas); si el operario carga solo «Cono» = 3 Tn
       // columnas (base 0): U=20 y V=21 -> destino de silo
-      info: {free:[20,21]}
+      // la columna de humedad del pellet se busca sola por el encabezado («humedad»); si hace falta fijarla, poné su índice base 0 (ej. T = 19)
+      info: {free:[20,21], hum:19}
     }
   }
 };
@@ -349,9 +353,69 @@ function lastText(recs,i){
   for(const x of recs){ const s = cellTxt(x.r,i); if(s && !/^[.\-x]+$/i.test(s)) return {s, t:x.t}; }
   return null;
 }
+function colLetter(i){ let s=""; i++; while(i>0){ const m=(i-1)%26; s=String.fromCharCode(65+m)+s; i=Math.floor((i-1)/26); } return s; }
+function findHumCol(head){
+  let best=-1, bestPellet=false;
+  head.forEach((hd,i)=>{
+    const s = norm(hd);
+    if(!/humedad/.test(s)) return;
+    const pel = /pellet|girasol/.test(s);
+    if(best<0 || (pel && !bestPellet)){ best=i; bestPellet=pel; }
+  });
+  return best;
+}
+// silo de destino de una fila: número, 0 si va a celda, null si no va a un silo aéreo / no se entiende
+// (girasol: col. U = "silo aéreo" o "silo grande"; si es aéreo, col. V trae el número)
+function destSilo(r, cols){
+  const txt = cols.map(c=>norm(cellTxt(r,c)));
+  if(txt.some(s=>/grande/.test(s))) return null;
+  for(const s of txt){
+    if(!s) continue;
+    const m = s.match(/silo\s*(\d+)/) || s.match(/^(\d+)$/);
+    if(m) return +m[1];
+    if(/celda/.test(s)) return 0;
+  }
+  return null;
+}
+// Humedad del material que hay en el silo n, PONDERADA por toneladas:
+// - cada fila con destino = silo n aporta su humedad como «lectura pendiente»;
+// - cuando el nivel del silo sube (Δ Tn), esas lecturas (promedio simple) se mezclan con lo que ya había:
+//   H = (Tn_previas·H_previa + Δ·H_carga) / (Tn_previas + Δ). Si el nivel baja, la humedad del resto no cambia.
+// - «Vacío» reinicia todo; si el silo no se vació, lo que quedó pesa en el promedio.
+function humAverage(chron, lvlIdx, n, humIdx, destCols, L){
+  let started=false, T=0, H=null, pend=[], all=[], weighted=false;
+  const mean = a=>a.reduce((x,y)=>x+y,0)/a.length;
+  for(const x of chron){
+    const v = lvlIdx!==undefined ? parseNivel(x.r[lvlIdx], L) : null;
+    const lv = v && !v.error && !v.nolevel;
+    if(lv){ started = true; if(v.mode==="vacio" && !v.closed){ T=0; H=null; pend=[]; all=[]; weighted=false; } }
+    // la humedad de esta fila pertenece a la carga que sube el nivel de esta misma fila
+    if(started && destSilo(x.r, destCols)===n){
+      const hv = numOf(cellTxt(x.r,humIdx),3,25);
+      if(hv!==null){ pend.push({t:x.t,h:hv}); all.push({t:x.t,h:hv}); }
+    }
+    if(lv && !(v.mode==="vacio" && !v.closed)){
+      const d = v.tn - T;
+      if(d>0 && pend.length){
+        const hp = mean(pend.map(q=>q.h));
+        if(H===null || T<=0) H = hp;
+        else { H = (T*H + d*hp)/(T+d); weighted = true; }
+        pend = [];
+      }
+      T = v.tn;
+    }
+  }
+  if(H===null && pend.length) H = mean(pend.map(q=>q.h));   // lecturas aún sin subida de nivel
+  if(H===null || !all.length) return null;
+  const hs = all.map(q=>q.h);
+  return {avg:H, n:hs.length, min:Math.min(...hs), max:Math.max(...hs), since:all[0].t, weighted};
+}
+
 function buildInfo(cfg, recs, head){
   const out = {t: recs.length ? recs[0].t : null};
   if(cfg.hum!=null)  out.hum  = lastNum(recs,cfg.hum,3,25);
+  if(cfg.humMissing){ out.hum = null; out.humMissing = true; }
+  if(typeof cfg.hum==="number" && cfg.humAuto) out.humCol = colLetter(cfg.hum);
   if(cfg.temp!=null) out.temp = lastNum(recs,cfg.temp,5,80);
   if(cfg.dest!=null && cfg.silo!=null && recs.length){
     const r = recs[0].r, d = cellTxt(r,cfg.dest), s = cellTxt(r,cfg.silo);
@@ -365,12 +429,8 @@ function buildInfo(cfg, recs, head){
       const lt = lastText(recs,i);
       return {label: String(head[i]||"").split("\n")[0].replace(/\s+/g," ").trim() || ("Columna "+(i+1)), ...(lt||{})};
     });
-    out.siloN = null;
-    for(const f of out.free){
-      if(!f.s) continue;
-      const m = norm(f.s).match(/silo\s*(\d+)/) || norm(f.s).match(/^(\d+)$/);
-      if(m){ out.siloN = +m[1]; }
-    }
+    out.siloN = recs.length ? destSilo(recs[0].r, cfg.free) : null;
+    if(out.siloN===0) out.siloN = null;
   }
   return out;
 }
@@ -456,8 +516,20 @@ function extract(rows, L){
     pts = k<0 ? pts.slice(-1) : pts.slice(Math.max(0,k-1));
     return {n, pts};
   });
+  // humedad: columna (fija o detectada) y humedad promedio por silo
+  const icfg = L.info ? {...L.info} : null;
+  if(icfg && icfg.hum==="auto"){
+    icfg.humAuto = true;
+    const f = findHumCol(head);
+    if(f>=0) icfg.hum = f; else { icfg.hum = null; icfg.humMissing = true; }
+  }
+  const humIdx = icfg && typeof icfg.hum==="number" ? icfg.hum : null;
+  const destCols = icfg ? (icfg.free || [icfg.silo, icfg.dest].filter(c=>c!=null)) : [];
+  if(humIdx!==null && destCols.length){
+    silos.forEach(s=>{ s.humAvg = humAverage(chron, cols[s.n], s.n, humIdx, destCols, L); });
+  }
   const last = recs.length ? recs[0].t : null;
-  const info = L.info ? buildInfo(L.info, recs, head) : null;
+  const info = icfg ? buildInfo(icfg, recs, head) : null;
   return {silos, last, info, series};
 }
 
@@ -572,6 +644,14 @@ function render(key){
     const isFill = fillN!=null && s.n===fillN;
     const mk = s.mat ? s.mat.key : null;
     const matLbl = mk==="pellet" ? '<div class="mat-tag">Pellet de soja</div>' : mk==="otro" ? `<div class="mat-tag">${s.mat.txt}</div>` : "";
+    let humLbl = "";
+    if(mk!=="tex" && s.humAvg!==undefined && !s.nodata && !s.error && s.mode!=="vacio"){
+      const a = s.humAvg;
+      if(a){
+        const f = d => d.toLocaleString("es-AR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false});
+        humLbl = `<div class="hum-avg" title="${a.weighted?"Promedio ponderado por toneladas":"Promedio"} de ${a.n} humedades cargadas con este silo como destino, desde ${f(a.since)}. Mín ${nf1.format(a.min)} % · máx ${nf1.format(a.max)} %">Hum. ${nf1.format(a.avg)} %<small>${a.weighted?"pond. · ":"prom. · "}${a.n} ${a.n===1?"lect.":"lect."}</small></div>`;
+      }else humLbl = `<div class="hum-avg none">Hum.: sin lecturas</div>`;
+    }
     const html = `<div class="silo ${c}${isFill?" filling":""}${s.closed?" closed":""}" tabindex="0" aria-label="${aria}${isFill?", llenándose ahora":""}">
       ${siloSVG(key+s.n, s, L, color)}
       <div class="name">Silo ${s.n}</div>
@@ -579,6 +659,7 @@ function render(key){
       <div class="det">${det}</div>
       <div class="age">${age}</div>
       ${matLbl}
+      ${humLbl}
       ${s.closed?'<div class="closed-tag">Cerrado</div>':""}
       ${isFill?'<div class="fill-tag">Llenando</div>':""}
     </div>`;
@@ -691,7 +772,7 @@ function renderInfo(key, info){
   }
   if("hum" in info){
     const h = info.hum;
-    t.push(tile("Humedad del pellet", h ? `${nf1.format(h.v)} <small>%</small>` : "—", h ? "medición "+haceCuanto(h.t) : "sin dato válido"));
+    t.push(tile("Humedad del pellet", h ? `${nf1.format(h.v)} <small>%</small>` : "—", h ? "medición "+haceCuanto(h.t)+(info.humCol?` · col. ${info.humCol}`:"") : (info.humMissing ? "no encontré la columna de humedad" : "sin dato válido")));
   }
   if("temp" in info){
     const x = info.temp;
@@ -712,6 +793,7 @@ function renderFooter(){
     `Girasol: ${f(g.chapa)} Tn por chapa (${f(g.chapa*g.chapas)} Tn con el silo lleno); con las chapas el cono no se suma, y si cargan solo «Cono» se toman ${f(g.conoSolo)} Tn. `+
     `El material de cada silo de soja (Texturizado o Pellet) se toma de las columnas «Material silo N» del formulario; mientras no esté cargado, los silos 1 y 2 se muestran como Texturizado de soja. `+
     `Debajo de los silos, «Últimas 24 h» muestra el nivel de cada silo en el tiempo (pasá el mouse o el dedo para ver los valores de cada hora). `+
+    `«Hum.» bajo cada silo de pellet es la humedad del material que hay en el silo: promedio de las humedades cargadas mientras fue el destino, ponderado por las toneladas que subió el nivel (si quedó material al recargar, pesa), y se reinicia al cargar «Vacío». `+
     `Un silo «Cerrado» tiene material pero no está disponible para despachar (pellet quemado, húmedo, con mucho polvillo, etc.); se muestra con rayas rojas y su último nivel conocido, y no se suma a lo disponible para despacho.`;
 }
 
