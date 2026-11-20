@@ -643,7 +643,7 @@ function render(key){
     const aria = s.nodata ? `Silo ${s.n}: sin datos` : s.error ? `Silo ${s.n}: dato ilegible` : s.unknown ? `Silo ${s.n}: cerrado, no disponible para despachar, nivel sin dato` : `Silo ${s.n}: ${nf1.format(s.tn)} toneladas, ${det}, ${age}${s.closed?", cerrado, no disponible para despachar":""}`;
     const isFill = fillN!=null && s.n===fillN;
     const mk = s.mat ? s.mat.key : null;
-    const matLbl = mk==="pellet" ? '<div class="mat-tag">Pellet de soja</div>' : mk==="otro" ? `<div class="mat-tag">${s.mat.txt}</div>` : "";
+    const matLbl = mk==="pellet" ? `<div class="mat-tag">Pellet de ${key==="soja"?"soja":"girasol"}</div>` : mk==="otro" ? `<div class="mat-tag">${s.mat.txt}</div>` : "";
     let humLbl = "";
     if(mk!=="tex" && s.humAvg!==undefined && !s.nodata && !s.error && s.mode!=="vacio"){
       const a = s.humAvg;
@@ -791,7 +791,7 @@ function renderFooter(){
     `Las toneladas se calculan con el nivel cargado en chapas (cada silo tiene ${s.chapas} chapas de altura). `+
     `Soja: cono ${f(s.cono)} Tn + ${f(s.chapa)} Tn por chapa; con cualquier nivel mayor a cero el cono se cuenta lleno. `+
     `Girasol: ${f(g.chapa)} Tn por chapa (${f(g.chapa*g.chapas)} Tn con el silo lleno); con las chapas el cono no se suma, y si cargan solo «Cono» se toman ${f(g.conoSolo)} Tn. `+
-    `El material de cada silo de soja (Texturizado o Pellet) se toma de las columnas «Material silo N» del formulario; mientras no esté cargado, los silos 1 y 2 se muestran como Texturizado de soja. `+
+    `El material de cada silo (Texturizado de soja o Pellet) se toma de las columnas «Material silo N» (soja) y «Material del silo 5/6» (girasol); en soja, mientras no esté cargado, los silos 1 y 2 se muestran como Texturizado de soja. Un silo con texturizado se enmarca aparte y no lleva humedad promedio. `+
     `Debajo de los silos, «Últimas 24 h» muestra el nivel de cada silo en el tiempo (pasá el mouse o el dedo para ver los valores de cada hora). `+
     `«Hum.» bajo cada silo de pellet es la humedad del material que hay en el silo: promedio de las humedades cargadas mientras fue el destino, ponderado por las toneladas que subió el nivel (si quedó material al recargar, pesa), y se reinicia al cargar «Vacío». `+
     `Un silo «Cerrado» tiene material pero no está disponible para despachar (pellet quemado, húmedo, con mucho polvillo, etc.); se muestra con rayas rojas y su último nivel conocido, y no se suma a lo disponible para despacho.`;
